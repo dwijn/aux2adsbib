@@ -7,60 +7,74 @@ import ads
 import bibtexparser
 from bibtexparser.bparser import BibTexParser
 
-basename, ext = os.path.splitext(os.path.basename(sys.argv[1]))
-
-# read already existing bibcodes from bibliography library
-try:
-    f = open(basename + '.bib', 'r')
-    bibdbs = f.read()
-    f.close()
-    bibdb = bibtexparser.loads(bibdbs, BibTexParser(common_strings = True))
-    havebibs = [d['ID'] for d in bibdb.entries]
-    print(f'Read {len(havebibs)} entries from {basename}.bib.')
-except:
-    print(f'{basename}.bib does not exist or is empty.')
-    bibdbs = ''
-    havebibs = [] # empty list
-
-# read required bibcodes from aux file
-with open(basename + '.aux', 'r') as f:
-    allbibs = [] # empty list
-    for line in f:
-        if "\citation" in line:
-            line = line[10:-2] # grab just the ADS bibcodes
-            allbibs.extend(line.split(','))
-    allbibs.sort()
-    f.close()
-
-# now remove the items from allbibs if they exist in havebibs
-needbibs = list(set([b for b in allbibs if b not in havebibs]))
-
-# query ADS if there are any missing
-if len(needbibs) > 0:
-    print(f'Attempting to get {len(needbibs)} missing entries from ADS.')
-    r = ads.RateLimits('ExportQuery')
-    bibdbs += ads.ExportQuery(bibcodes=needbibs, format='bibtex').execute()
-    print(f"ADS query finished, {r.limits['remaining']} ADS API queries remaining.")
-
-    # write the new bibliography
-    with open(basename + '.bib', 'w') as f:
-        f.write(bibdbs)
-        f.close()
-else:
-    print(f'Nothing to do.')
-
-
-# ChatGPT-generated skeleton code below
-
 def process_file(filename):
     # Your file processing code goes here
-    # You can open the file, read its contents, perform operations, etc.
-    # Modify this function to suit your specific needs
-    
-    # Example: Print the contents of the file
-    with open(filename, 'r') as file:
-        for line in file:
-            print(line.strip())
+
+    # produce the aux and bibliography files
+    basename, ext = os.path.splitext(filename)
+    auxfile = basename + '.aux'
+    bibfile = basename + '.bib'
+
+    # check if the aux file exists and exit if it doesn't
+    if not os.path.exists(auxfile):
+        print(f'Error: aux file {auxfile} does not exist. Do you need to run LaTeX?')
+        sys.exit(1)
+
+    # read the contents of the bib file if it exists
+    try:
+        f = open(bibfile, 'r')
+        bibdbs = f.read()
+        f.close()
+        bibdb = bibtexparser.loads(bibdbs, BibTexParser(common_strings = True))
+        havebibs = [d['ID'] for d in bibdb.entries]
+        print(f'Read {len(havebibs)} entries from {bibfile}.')
+    except:
+        print(f'{bibfile} does not exist or is empty.')
+        bibdbs = ''
+        havebibs = [] # empty list
+
+    # read required bibcodes from aux file
+    with open(auxfile, 'r') as f:
+        allbibs = [] # empty list
+        for line in f:
+            if "\citation" in line:
+                line = line[10:-2] # grab just the ADS bibcodes
+                allbibs.extend(line.split(','))
+        allbibs.sort()
+
+    # now remove the items from allbibs if they exist in havebibs
+    needbibs = list(set([b for b in allbibs if b not in havebibs]))
+
+    # query ADS if there are any missing
+    if len(needbibs) > 0:
+        print(f'Attempting to get {len(needbibs)} missing entries from ADS.')
+        try:
+            bibdbs += ads.ExportQuery(bibcodes=needbibs, format='bibtex').execute()
+        except ads.exceptions.APIResponseError as e:
+            print(f'ADS query failed: {e.value}')
+        except:
+            print(f'Something went wrong with the ADS query.')
+
+        # see what we got
+        bibdb = bibtexparser.loads(bibdbs, BibTexParser(common_strings = True))
+        havebibs = [d['ID'] for d in bibdb.entries]
+
+        # find the citations we couldn't resolve
+        leftbibs = list(set([b for b in allbibs if b not in havebibs]))
+
+        # tell the user
+        print(f'Got {len(needbibs) - len(leftbibs)} entries from ADS.')
+        if len(leftbibs) > 0:
+            print(f'Missing entries are:')
+            for i, b in enumerate(leftbibs):
+                print(f'{i+1}: {b}')
+
+        # write the new bibliography
+        with open(basename + '.bib', 'w') as f:
+            f.write(bibdbs)
+    else:
+        print(f'No missing entries, nothing to do.')
+   
 
 def main():
     # Check if a file name is provided as an argument
@@ -72,7 +86,7 @@ def main():
     filename = sys.argv[1]
     
     # Call the function to process the file
-    #process_file(filename)
+    process_file(filename)
 
 if __name__ == '__main__':
     main()

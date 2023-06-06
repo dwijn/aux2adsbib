@@ -1,0 +1,3 @@
+bibtexparser ~= 1
+ads >= 0.12.3
+certifi >= 2022.12.07
